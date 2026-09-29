@@ -278,43 +278,6 @@ export function SkinSection({ t, scope, loadWallpapers = fetchWallpaperList }: S
 
       <div className="skinbg-field">
         <div className="skinbg-field-head">
-          <span className="skinbg-field-label" id="skinbg-window-label">
-            {`${t('windowTransparency')} · ${Math.round(effective.windowTransparency * 100)}%`}
-          </span>
-        </div>
-        <div className="skinbg-step-row">
-          <button
-            type="button"
-            className="skinbg-step-btn"
-            onClick={() => nudgeTransparency('windowTransparency', -0.05)}
-            disabled={effective.windowTransparency <= 0}
-            aria-label={`${t('windowTransparency')} ${t('fineDecrease')}`}
-            title={`−5%`}
-          >
-            −
-          </button>
-          <input
-            type="range" min={0} max={100} step={5}
-            value={Math.round(effective.windowTransparency * 100)}
-            onChange={event => stage({ windowTransparency: Number(event.target.value) / 100 })}
-            className="skinbg-range"
-            aria-labelledby="skinbg-window-label"
-          />
-          <button
-            type="button"
-            className="skinbg-step-btn"
-            onClick={() => nudgeTransparency('windowTransparency', 0.05)}
-            disabled={effective.windowTransparency >= 1}
-            aria-label={`${t('windowTransparency')} ${t('fineIncrease')}`}
-            title={`+5%`}
-          >
-            +
-          </button>
-        </div>
-      </div>
-
-      <div className="skinbg-field">
-        <div className="skinbg-field-head">
           <span className="skinbg-field-label">
             {t('wallpaper')}
             {wallpapers !== undefined && <span className="skinbg-count">{String(wallpapers.length)}</span>}
@@ -442,6 +405,43 @@ export function SkinSection({ t, scope, loadWallpapers = fetchWallpaperList }: S
             onClick={() => nudgeTransparency('transparency', 0.05)}
             disabled={effective.transparency >= 1}
             aria-label={`${t('transparency')} ${t('fineIncrease')}`}
+            title={`+5%`}
+          >
+            +
+          </button>
+        </div>
+      </div>
+
+      <div className="skinbg-field">
+        <div className="skinbg-field-head">
+          <span className="skinbg-field-label" id="skinbg-window-label">
+            {`${t('windowTransparency')} · ${Math.round(effective.windowTransparency * 100)}%`}
+          </span>
+        </div>
+        <div className="skinbg-step-row">
+          <button
+            type="button"
+            className="skinbg-step-btn"
+            onClick={() => nudgeTransparency('windowTransparency', -0.05)}
+            disabled={effective.windowTransparency <= 0}
+            aria-label={`${t('windowTransparency')} ${t('fineDecrease')}`}
+            title={`−5%`}
+          >
+            −
+          </button>
+          <input
+            type="range" min={0} max={100} step={5}
+            value={Math.round(effective.windowTransparency * 100)}
+            onChange={event => stage({ windowTransparency: Number(event.target.value) / 100 })}
+            className="skinbg-range"
+            aria-labelledby="skinbg-window-label"
+          />
+          <button
+            type="button"
+            className="skinbg-step-btn"
+            onClick={() => nudgeTransparency('windowTransparency', 0.05)}
+            disabled={effective.windowTransparency >= 1}
+            aria-label={`${t('windowTransparency')} ${t('fineIncrease')}`}
             title={`+5%`}
           >
             +
