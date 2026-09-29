@@ -1,7 +1,7 @@
 {
   "name": "dsh-skin-background",
-  "description": "Skin plugin for the DeepSeek Harness web client: selectable image backgrounds (shipped + user wallpapers), translucent glass surfaces, live dim and blur controls. · dsh 皮肤插件：图片背景、毛玻璃面板、亮度与模糊调节。",
-  "version": "0.1.0",
+  "description": "Skin plugin for the DeepSeek Harness web client: selectable image backgrounds (shipped + user wallpapers), live transparency and blur controls for the main panel and the settings/plugin windows. · dsh 皮肤插件：图片背景、主面板与设置/插件窗口透明度、模糊调节。",
+  "version": "0.2.0",
   "type": "module",
   "license": "MIT",
   "keywords": [

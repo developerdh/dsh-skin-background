@@ -33,16 +33,25 @@ export const SKIN_BASE_TOKEN_OVERRIDES: Readonly<Record<string, { light: string;
 })
 
 /**
- * The glass layer, gated by the `glass` setting (default off): panels and
- * surfaces — including the settings window (`--dsw-alias-bg-layer-2`) — turn
- * translucent as well. Overlays stay nearly opaque so popover text keeps full
- * contrast.
+ * The settings/Plugins-pages token layer, driven by `windowTransparency`
+ * (shared by both surfaces): `0` keeps the theme's opaque defaults (no layer
+ * at all), higher values make the window fills translucent. Overlays stay
+ * nearly opaque so popover text keeps full contrast.
  */
-export const SKIN_GLASS_TOKEN_OVERRIDES: Readonly<Record<string, { light: string; dark: string }>> = Object.freeze({
-  '--dsw-alias-bg-layer-1': { light: 'rgba(255, 255, 255, 0.6)', dark: 'rgba(23, 27, 36, 0.62)' },
-  '--dsw-alias-bg-layer-2': { light: 'rgba(255, 255, 255, 0.52)', dark: 'rgba(28, 33, 44, 0.55)' },
-  '--dsw-alias-bg-overlay': { light: 'rgba(255, 255, 255, 0.92)', dark: 'rgba(24, 28, 38, 0.94)' },
-})
+export function windowTokenOverrides(
+  windowTransparency: number,
+): Record<string, { light: string; dark: string }> | undefined {
+  if (windowTransparency <= 0) return undefined
+  const alpha = round(Math.min(1 - windowTransparency, 1))
+  return {
+    '--dsw-alias-bg-layer-1': { light: `rgba(255, 255, 255, ${alpha})`, dark: `rgba(23, 27, 36, ${alpha})` },
+    '--dsw-alias-bg-layer-2': { light: `rgba(255, 255, 255, ${alpha})`, dark: `rgba(28, 33, 44, ${alpha})` },
+    '--dsw-alias-bg-overlay': {
+      light: `rgba(255, 255, 255, ${Math.max(alpha, 0.92)})`,
+      dark: `rgba(24, 28, 38, ${Math.max(alpha, 0.94)})`,
+    },
+  }
+}
 
 /**
  * The static skin stylesheet. The wallpaper itself, the dim veil colors, and
@@ -51,23 +60,35 @@ export const SKIN_GLASS_TOKEN_OVERRIDES: Readonly<Record<string, { light: string
  * + blur on one fixed layer at z-index -1 (beneath app content, above the
  * canvas); the negative bleed inset keeps blurred edges from showing a
  * frame. The dark veil is a touch stronger than the light one to preserve
- * label contrast on bright images.
+ * label contrast on bright images. The plugin-manager surface
+ * (`[data-plugin-panel]`, list and detail views alike) sits on the main
+ * canvas, so it would inherit the canvas translucency — its fill is driven
+ * by the shared `windowTransparency` value instead (`0` = fully opaque).
  */
-export const SKIN_CSS = `:root { --dsh-skin-image: none; --dsh-skin-dim-light: rgba(255,255,255,0.35); --dsh-skin-dim-dark: rgba(6,8,14,0.45); --dsh-skin-blur: 0px; --dsh-skin-bleed: 0px; }
+export const SKIN_CSS = `:root { --dsh-skin-image: none; --dsh-skin-dim-light: rgba(255,255,255,0.35); --dsh-skin-dim-dark: rgba(6,8,14,0.45); --dsh-skin-blur: 0px; --dsh-skin-bleed: 0px; --dsh-skin-window-light: rgba(255,255,255,1); --dsh-skin-window-dark: rgba(21,21,23,1); }
 html body { --dsh-skin-dim: var(--dsh-skin-dim-light); }
 html body[data-ds-dark-theme] { --dsh-skin-dim: var(--dsh-skin-dim-dark); }
-body.${SKIN_ACTIVE_CLASS}::before { content: ''; position: fixed; inset: calc(-1 * var(--dsh-skin-bleed)); z-index: -1; pointer-events: none; background-image: linear-gradient(var(--dsh-skin-dim), var(--dsh-skin-dim)), var(--dsh-skin-image); background-size: cover; background-position: center; background-repeat: no-repeat; filter: blur(var(--dsh-skin-blur)); }`
+body.${SKIN_ACTIVE_CLASS}::before { content: ''; position: fixed; inset: calc(-1 * var(--dsh-skin-bleed)); z-index: -1; pointer-events: none; background-image: linear-gradient(var(--dsh-skin-dim), var(--dsh-skin-dim)), var(--dsh-skin-image); background-size: cover; background-position: center; background-repeat: no-repeat; filter: blur(var(--dsh-skin-blur)); }
+body.${SKIN_ACTIVE_CLASS} [data-plugin-panel] { --dsw-alias-bg-base: var(--dsh-skin-window-light); background: var(--dsh-skin-window-light); }
+body.${SKIN_ACTIVE_CLASS}[data-ds-dark-theme] [data-plugin-panel] { --dsw-alias-bg-base: var(--dsh-skin-window-dark); background: var(--dsh-skin-window-dark); }`
+
+/** Round a ratio to two decimals so CSS strings never carry float tails. */
+const round = (value: number): number => Math.round(value * 100) / 100
 
 /** Compute the root-element custom properties for one resolved skin. */
 export function skinVariables(settings: SkinSettings, wallpapers: readonly WallpaperEntry[] | undefined): Record<string, string> {
   const url = resolveImageUrl(settings.image, wallpapers)
-  const darkDim = Math.min(settings.dim + 0.15, 0.95)
+  const lightVeil = round(Math.min(1 - settings.transparency, 1))
+  const darkVeil = round(Math.min(lightVeil + 0.15, 0.95))
+  const windowAlpha = round(Math.min(1 - settings.windowTransparency, 1))
   return {
     '--dsh-skin-image': `url("${url}")`,
-    '--dsh-skin-dim-light': `rgba(255,255,255,${settings.dim})`,
-    '--dsh-skin-dim-dark': `rgba(6,8,14,${darkDim})`,
+    '--dsh-skin-dim-light': `rgba(255,255,255,${lightVeil})`,
+    '--dsh-skin-dim-dark': `rgba(6,8,14,${darkVeil})`,
     '--dsh-skin-blur': `${settings.blur}px`,
     '--dsh-skin-bleed': `${settings.blur}px`,
+    '--dsh-skin-window-light': `rgba(255,255,255,${windowAlpha})`,
+    '--dsh-skin-window-dark': `rgba(21,21,23,${windowAlpha})`,
   }
 }
 
@@ -82,15 +103,15 @@ export interface SkinControllerDeps {
  * `apply` may run on every settings or wallpaper change; `dispose` fully
  * reverts the DOM and the theme layer.
  */
-/** Source ids for the two token override layers (base always with the skin; glass opt-in). */
+/** Source ids for the two token override layers (base always with the skin; window layer follows its transparency). */
 const BASE_TOKEN_SOURCE = 'dsh-skin-background'
-const GLASS_TOKEN_SOURCE = 'dsh-skin-background:glass'
+const WINDOW_TOKEN_SOURCE = 'dsh-skin-background:window'
 
 export class SkinController {
   private readonly document: Document
   private readonly theme: ThemeOverrideService
   private disposeBaseTokens: (() => void) | undefined
-  private disposeGlassTokens: (() => void) | undefined
+  private disposeWindowTokens: (() => void) | undefined
   private lastSettings: SkinSettings | undefined
   private lastWallpapers: readonly WallpaperEntry[] | undefined
 
@@ -103,9 +124,8 @@ export class SkinController {
    * Apply one (possibly partial/garbage) settings document. Disabling or
    * garbage input degrades cleanly: the wallpaper layer hides and both token
    * layers are dropped. The base token layer (main canvas + sidebar) is part
-   * of the skin itself; the glass layer over panels follows its own `glass`
-   * switch (default off) so the wallpaper can run without making official
-   * panels translucent.
+   * of the skin itself; the window layer over the settings/Plugins pages
+   * follows its own `windowTransparency` slider (0 = opaque theme defaults).
    */
   apply(settings: unknown, wallpapers?: readonly WallpaperEntry[]): void {
     const resolved = resolveSkinSettings(settings)
@@ -122,14 +142,15 @@ export class SkinController {
     for (const [name, value] of Object.entries(skinVariables(resolved, this.lastWallpapers))) {
       root.style.setProperty(name, value)
     }
-    // Drop and re-add each token layer on every apply: a glass toggle takes
-    // effect immediately, and overrideTokens stacks layers if re-called.
+    // Drop and re-add each token layer on every apply: a transparency change
+    // takes effect immediately, and overrideTokens stacks layers if re-called.
     this.disposeBaseTokens?.()
-    this.disposeGlassTokens?.()
+    this.disposeWindowTokens?.()
     this.disposeBaseTokens = this.theme.overrideTokens(BASE_TOKEN_SOURCE, { ...SKIN_BASE_TOKEN_OVERRIDES })
-    this.disposeGlassTokens = resolved.glass
-      ? this.theme.overrideTokens(GLASS_TOKEN_SOURCE, { ...SKIN_GLASS_TOKEN_OVERRIDES })
-      : undefined
+    const windowTokens = windowTokenOverrides(resolved.windowTransparency)
+    this.disposeWindowTokens = windowTokens === undefined
+      ? undefined
+      : this.theme.overrideTokens(WINDOW_TOKEN_SOURCE, { ...windowTokens })
   }
 
   /** Store a late-arriving wallpaper list and re-apply the last settings. */
@@ -147,13 +168,13 @@ export class SkinController {
   /** Hide the wallpaper and drop both token layers (plugin stays loaded). */
   private deactivate(): void {
     this.document.body.classList.remove(SKIN_ACTIVE_CLASS)
-    for (const name of ['--dsh-skin-image', '--dsh-skin-dim-light', '--dsh-skin-dim-dark', '--dsh-skin-blur', '--dsh-skin-bleed']) {
+    for (const name of ['--dsh-skin-image', '--dsh-skin-dim-light', '--dsh-skin-dim-dark', '--dsh-skin-blur', '--dsh-skin-bleed', '--dsh-skin-window-light', '--dsh-skin-window-dark']) {
       this.document.documentElement.style.removeProperty(name)
     }
     this.disposeBaseTokens?.()
     this.disposeBaseTokens = undefined
-    this.disposeGlassTokens?.()
-    this.disposeGlassTokens = undefined
+    this.disposeWindowTokens?.()
+    this.disposeWindowTokens = undefined
   }
 
   /** Fully revert: deactivate plus remove the style tag. */

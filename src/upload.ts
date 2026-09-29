@@ -15,10 +15,11 @@
  *    charset; the stored name gets a timestamp suffix so re-uploads never
  *    overwrite (served wallpapers use `cache-control: max-age=86400`).
  */
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { WALLPAPER_ROUTE, UPLOAD_MAX_BYTES } from './skin-settings.ts'
+import { isWallpaperFilename } from './wallpapers.ts'
 
 /** Image types accepted for upload (no `.svg`, no `.jpeg` — sniffed, see below). */
 export type UploadExtension = '.png' | '.jpg' | '.webp' | '.avif' | '.gif'
@@ -150,4 +151,44 @@ export async function handleUpload(
     filename,
   }
   send(200, response as unknown as Record<string, string>)
+}
+
+/**
+ * `DELETE /skin-background/wallpapers/<name>` — remove one user-uploaded
+ * wallpaper. Only the user drop-in directory is consulted, so shipped
+ * built-in wallpapers can never be deleted through this route. Same-origin
+ * gate as the upload route (browsers attach Origin to DELETE fetches).
+ */
+export async function handleWallpaperDelete(
+  req: IncomingMessage,
+  res: ServerResponse,
+  userDir: string,
+): Promise<void> {
+  const send = (status: number, body: Record<string, string>): void => {
+    res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' })
+    res.end(JSON.stringify(body))
+  }
+  if (!isSameOrigin(req)) {
+    send(403, { error: 'cross-origin delete refused' })
+    return
+  }
+  const pathname = new URL(req.url ?? '/', 'http://localhost').pathname
+  const filename = decodeURIComponent(pathname.slice(WALLPAPER_ROUTE.length + 1))
+  if (!isWallpaperFilename(filename)) {
+    send(404, { error: 'wallpaper not found' })
+    return
+  }
+  const target = resolve(userDir, filename)
+  if (!target.startsWith(resolve(userDir) + (process.platform === 'win32' ? '\\' : '/'))) {
+    send(404, { error: 'wallpaper not found' })
+    return
+  }
+  try {
+    await unlink(target)
+  } catch {
+    // Not in the user directory (e.g. a built-in name) or already gone.
+    send(404, { error: 'wallpaper not found' })
+    return
+  }
+  send(200, { ok: 'true' })
 }

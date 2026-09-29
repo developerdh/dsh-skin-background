@@ -1,9 +1,10 @@
 /**
  * dsh-skin-background, browser half. Applies the image-background skin
  * (wallpaper layer plus translucent surface tokens) and contributes the
- * "Skin" section to the settings page. Settings arrive through the config
- * form bound to the `skin-background` entry, so every change saved anywhere
- * applies live.
+ * "Skin" section to the settings page plus the configuration area on the
+ * plugin's own Plugins-page detail (`plugins.bundle.config`). Settings
+ * arrive through the config form bound to the `skin-background` entry, so
+ * every change saved anywhere applies live.
  *
  * The context shape below is structural, mirroring the host services this
  * plugin touches (the loader provides the real Cordis context; keeping the
@@ -12,7 +13,7 @@
  * writes go through `configForms` — the old `settingsScope` service is gone.
  */
 import { createElement as h } from 'react'
-import { DEFAULT_SKIN_SETTINGS, SKIN_NAMESPACE, type SkinSettings } from '../skin-settings.ts'
+import { DEFAULT_SKIN_SETTINGS, PLUGIN_PACKAGE_NAME, SKIN_NAMESPACE, type SkinSettings } from '../skin-settings.ts'
 import { SkinController, type ThemeOverrideService } from './SkinController.ts'
 import { SkinSection, createWallpaperLoader, type SkinScopeController } from './SkinSection.tsx'
 import { en, zh, type SkinDictionary } from './locales.ts'
@@ -28,7 +29,7 @@ interface LocaleService {
 /** The slots-service surface this plugin touches. */
 interface SlotsService {
   inject(name: string, register: () => unknown): void
-  register(options: Record<string, unknown>, component: () => unknown): unknown
+  register(options: Record<string, unknown>, component: (props: unknown) => unknown): unknown
 }
 
 /** The config-forms service (present once the settings domain is composed). */
@@ -92,6 +93,19 @@ export function apply(ctx: SkinClientContext): void {
       locale: LOCALE_NS,
       inject: () => ({ t }),
     }, () => h(SkinSection, { t, scope, loadWallpapers })))
+
+    // The Plugins page's bundle detail renders this entry (keyed by the
+    // package name) as the plugin's own configuration area: 'page' is the
+    // full skin form, 'summary' a one-line placeholder.
+    cctx.slots.inject('plugins.bundle.config', () => cctx.slots.register({
+      name: 'plugins.bundle.config',
+      key: PLUGIN_PACKAGE_NAME,
+    }, (props: unknown) => {
+      const view = (props as { view?: 'summary' | 'page' } | undefined)?.view
+      return view === 'summary'
+        ? h('span', null, t('nav'))
+        : h(SkinSection, { t, scope, loadWallpapers })
+    }))
   })
 }
 

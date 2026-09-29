@@ -125,13 +125,13 @@ describe('host apply', () => {
 
   it('rejects out-of-range numbers at the schema boundary and resolves volatile defaults', async () => {
     const { Config } = await importHost()
-    expect(() => Config({ dim: 5 })).toThrow()
+    expect(() => Config({ transparency: 5 })).toThrow()
     expect(() => Config({ blur: -1 })).toThrow()
     // Volatile fields resolve to live references; read their snapshots.
     const resolved = Config({}) as unknown as Record<string, { get: () => unknown }>
     expect(resolved.enabled.get()).toBe(true)
     expect(resolved.image.get()).toBe('')
-    expect(resolved.dim.get()).toBe(0.15)
+    expect(resolved.transparency.get()).toBe(0.85)
     expect(resolved.blur.get()).toBe(0)
   })
 })
@@ -221,6 +221,43 @@ describe('wallpaper upload route', () => {
     expect(response.status).toBe(200)
     const body = JSON.parse(response.body()) as { filename: string }
     expect(body.filename).toMatch(/^wallpaper-[0-9a-z]+\.png$/)
+  })
+})
+
+describe('wallpaper delete route', () => {
+  const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13])
+  const SAME_ORIGIN = { origin: 'http://localhost:3000', host: 'localhost:3000' }
+
+  it('deletes an uploaded wallpaper and then no longer serves it', async () => {
+    const { routes } = await mount()
+    const uploaded = await request(routes, 'POST', '/skin-background/upload?name=Temporary.png', {
+      headers: { ...SAME_ORIGIN },
+      body: PNG_BYTES,
+    })
+    expect(uploaded.status).toBe(200)
+    const url = (JSON.parse(uploaded.body()) as { url: string }).url
+    expect((await request(routes, 'GET', url)).status).toBe(200)
+    const deleted = await request(routes, 'DELETE', url, { headers: { ...SAME_ORIGIN } })
+    expect(deleted.status).toBe(200)
+    expect((await request(routes, 'GET', url)).status).toBe(404)
+  })
+
+  it('refuses cross-origin deletes and unknown or builtin names', async () => {
+    const { routes } = await mount()
+    const crossOrigin = await request(routes, 'DELETE', '/skin-background/wallpapers/x.png', {
+      headers: { origin: 'http://evil.example', host: 'localhost:3000' },
+    })
+    expect(crossOrigin.status).toBe(403)
+    const missing = await request(routes, 'DELETE', '/skin-background/wallpapers/nope.png', {
+      headers: { ...SAME_ORIGIN },
+    })
+    expect(missing.status).toBe(404)
+    // Built-ins live outside the user directory and cannot be removed.
+    const builtin = await request(routes, 'DELETE', '/skin-background/wallpapers/aurora-dawn.svg', {
+      headers: { ...SAME_ORIGIN },
+    })
+    expect(builtin.status).toBe(404)
+    expect((await request(routes, 'GET', '/skin-background/wallpapers/aurora-dawn.svg')).status).toBe(200)
   })
 })
 

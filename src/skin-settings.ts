@@ -8,17 +8,20 @@
 /** Settings namespace (also the loader row id and the route prefix stem). */
 export const SKIN_NAMESPACE = 'skin-background'
 
+/**
+ * The plugin's package name — the dispatch key of the `plugins.bundle.config`
+ * slot entry the Plugins page renders on the bundle's detail page.
+ */
+export const PLUGIN_PACKAGE_NAME = 'dsh-skin-background'
+
 /** Route prefix the Host half owns for wallpaper listing and serving. */
 export const WALLPAPER_ROUTE = '/skin-background/wallpapers'
 
 /** The wallpaper picked when the stored image reference is empty or unusable. */
 export const FALLBACK_WALLPAPER_URL = `${WALLPAPER_ROUTE}/aurora-dawn.svg`
 
-/** Upper bound for the dim veil alpha (kept below 1 so content stays readable). */
-export const DIM_MAX = 0.9
-
-/** Upper bound for the background blur radius in CSS pixels. */
-export const BLUR_MAX = 24
+/** Upper bound for the background blur radius in CSS pixels (dsh-skin parity). */
+export const BLUR_MAX = 60
 
 /** Wallpaper file extensions served from disk, leading dot included. */
 export const WALLPAPER_EXTENSIONS = ['.svg', '.png', '.jpg', '.jpeg', '.webp', '.avif', '.gif'] as const
@@ -35,25 +38,25 @@ export interface SkinSettings {
    * plugin-served path under {@link WALLPAPER_ROUTE}. Empty means "default".
    */
   image: string
-  /** Dim veil alpha over the image, 0–{@link DIM_MAX}. */
-  dim: number
+  /** Main-panel transparency, 0–1: higher = the base under the UI gets more see-through (veil alpha is its inverse). */
+  transparency: number
   /** Background blur radius in px, 0–{@link BLUR_MAX}. */
   blur: number
   /**
-   * Translucent-glass surface layer (theme token overrides). Off by default:
-   * the glass tokens make every official panel — including the settings
-   * window — translucent, which not everyone wants.
+   * Settings/Plugins-pages transparency, 0–1: higher = those windows get more
+   * translucent. Shared by both surfaces (the plugin page sits on the same
+   * control); 0 keeps them fully opaque.
    */
-  glass: boolean
+  windowTransparency: number
 }
 
 /** Defaults applied below both the composition layer and any stored value. */
 export const DEFAULT_SKIN_SETTINGS: SkinSettings = Object.freeze({
   enabled: true,
   image: '',
-  dim: 0.15,
+  transparency: 0.85,
   blur: 0,
-  glass: false,
+  windowTransparency: 0,
 })
 
 /**
@@ -74,10 +77,10 @@ export function isAcceptableImage(image: string): boolean {
   return image === '' || IMAGE_PATTERN.test(image)
 }
 
-/** Clamp a dim alpha into [0, DIM_MAX], mapping garbage to the default. */
-export function clampDim(value: unknown): number {
-  const dim = typeof value === 'number' && Number.isFinite(value) ? value : DEFAULT_SKIN_SETTINGS.dim
-  return Math.min(DIM_MAX, Math.max(0, dim))
+/** Clamp a ratio (transparency values) into [0, 1], mapping garbage to the given default. */
+export function clampTransparency(value: unknown, fallback: number): number {
+  const ratio = typeof value === 'number' && Number.isFinite(value) ? value : fallback
+  return Math.min(1, Math.max(0, ratio))
 }
 
 /** Clamp a blur radius into [0, BLUR_MAX] whole pixels, mapping garbage to the default. */
@@ -94,14 +97,13 @@ export function clampBlur(value: unknown): number {
 export function resolveSkinSettings(value: unknown): SkinSettings {
   const raw = (typeof value === 'object' && value !== null ? value : {}) as Partial<Record<keyof SkinSettings, unknown>>
   const enabled = raw.enabled === undefined ? DEFAULT_SKIN_SETTINGS.enabled : raw.enabled === true
-  const glass = raw.glass === undefined ? DEFAULT_SKIN_SETTINGS.glass : raw.glass === true
   const imageCandidate = typeof raw.image === 'string' ? raw.image : DEFAULT_SKIN_SETTINGS.image
   return {
     enabled,
     image: isAcceptableImage(imageCandidate) ? imageCandidate : DEFAULT_SKIN_SETTINGS.image,
-    dim: clampDim(raw.dim),
+    transparency: clampTransparency(raw.transparency, DEFAULT_SKIN_SETTINGS.transparency),
     blur: clampBlur(raw.blur),
-    glass,
+    windowTransparency: clampTransparency(raw.windowTransparency, DEFAULT_SKIN_SETTINGS.windowTransparency),
   }
 }
 
