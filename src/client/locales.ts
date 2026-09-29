@@ -8,6 +8,7 @@ export interface SkinDictionary {
   title: string
   intro: string
   enabled: string
+  glass: string
   wallpaper: string
   wallpaperUser: string
   customUrl: string
@@ -24,6 +25,12 @@ export interface SkinDictionary {
   reset: string
   loadFailed: string
   none: string
+  upload: string
+  uploadChoose: string
+  uploading: string
+  uploadTooLarge: string
+  uploadInvalid: string
+  uploadFailed: string
 }
 
 export const zh: SkinDictionary = {
@@ -31,11 +38,18 @@ export const zh: SkinDictionary = {
   title: '皮肤 · 图片背景',
   intro: '为 Web 界面选择一张图片背景。内置壁纸随插件提供，也可以把自己喜欢的图片放到 ~/.dsh/skin-center/wallpapers 目录，或直接输入图片链接。',
   enabled: '启用图片背景',
+  glass: '设置页透明',
   wallpaper: '壁纸',
   wallpaperUser: '（来自我的目录）',
   customUrl: '自定义图片链接',
   customUrlApply: '应用链接',
   customUrlInvalid: '链接需为 http(s) 地址或插件提供的壁纸路径',
+  upload: '本地上传',
+  uploadChoose: '选择图片',
+  uploading: '上传中…',
+  uploadTooLarge: '图片不能超过 5MB',
+  uploadInvalid: '不支持的图片格式（仅支持 PNG/JPEG/WebP/AVIF/GIF）',
+  uploadFailed: '上传失败，请重试',
   dim: '背景压暗',
   blur: '背景模糊',
   save: '保存',
@@ -54,11 +68,18 @@ export const en: SkinDictionary = {
   title: 'Skin · Image background',
   intro: 'Pick an image background for the web client. Built-in wallpapers ship with the plugin; drop your own into ~/.dsh/skin-center/wallpapers, or paste any image link.',
   enabled: 'Enable image background',
+  glass: 'Translucent settings page',
   wallpaper: 'Wallpaper',
   wallpaperUser: '(from your directory)',
   customUrl: 'Custom image URL',
   customUrlApply: 'Apply link',
   customUrlInvalid: 'The link must be an http(s) URL or a plugin-served wallpaper path',
+  upload: 'Local upload',
+  uploadChoose: 'Choose image',
+  uploading: 'Uploading…',
+  uploadTooLarge: 'The image must be 5 MB or smaller',
+  uploadInvalid: 'Unsupported image format (PNG/JPEG/WebP/AVIF/GIF only)',
+  uploadFailed: 'Upload failed, please retry',
   dim: 'Background dim',
   blur: 'Background blur',
   save: 'Save',

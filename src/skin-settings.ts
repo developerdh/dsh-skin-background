@@ -23,6 +23,9 @@ export const BLUR_MAX = 24
 /** Wallpaper file extensions served from disk, leading dot included. */
 export const WALLPAPER_EXTENSIONS = ['.svg', '.png', '.jpg', '.jpeg', '.webp', '.avif', '.gif'] as const
 
+/** Hard cap for one uploaded image (5 MB); shared by the client pre-check and the Host route. */
+export const UPLOAD_MAX_BYTES = 5 * 1024 * 1024
+
 /** User-facing shape stored under the settings namespace. */
 export interface SkinSettings {
   /** Master switch: when false every visual change is removed. */
@@ -36,6 +39,12 @@ export interface SkinSettings {
   dim: number
   /** Background blur radius in px, 0–{@link BLUR_MAX}. */
   blur: number
+  /**
+   * Translucent-glass surface layer (theme token overrides). Off by default:
+   * the glass tokens make every official panel — including the settings
+   * window — translucent, which not everyone wants.
+   */
+  glass: boolean
 }
 
 /** Defaults applied below both the composition layer and any stored value. */
@@ -44,6 +53,7 @@ export const DEFAULT_SKIN_SETTINGS: SkinSettings = Object.freeze({
   image: '',
   dim: 0.15,
   blur: 0,
+  glass: false,
 })
 
 /**
@@ -84,12 +94,14 @@ export function clampBlur(value: unknown): number {
 export function resolveSkinSettings(value: unknown): SkinSettings {
   const raw = (typeof value === 'object' && value !== null ? value : {}) as Partial<Record<keyof SkinSettings, unknown>>
   const enabled = raw.enabled === undefined ? DEFAULT_SKIN_SETTINGS.enabled : raw.enabled === true
+  const glass = raw.glass === undefined ? DEFAULT_SKIN_SETTINGS.glass : raw.glass === true
   const imageCandidate = typeof raw.image === 'string' ? raw.image : DEFAULT_SKIN_SETTINGS.image
   return {
     enabled,
     image: isAcceptableImage(imageCandidate) ? imageCandidate : DEFAULT_SKIN_SETTINGS.image,
     dim: clampDim(raw.dim),
     blur: clampBlur(raw.blur),
+    glass,
   }
 }
 

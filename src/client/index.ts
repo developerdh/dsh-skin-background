@@ -1,13 +1,15 @@
 /**
  * dsh-skin-background, browser half. Applies the image-background skin
  * (wallpaper layer plus translucent surface tokens) and contributes the
- * "Skin" section to the settings page. Settings arrive through the bound
- * `skin-background` scope, so every change saved anywhere applies live.
+ * "Skin" section to the settings page. Settings arrive through the config
+ * form bound to the `skin-background` entry, so every change saved anywhere
+ * applies live.
  *
  * The context shape below is structural, mirroring the host services this
  * plugin touches (the loader provides the real Cordis context; keeping the
  * touched surface explicit keeps this external package free of
- * monorepo-internal type dependencies).
+ * monorepo-internal type dependencies). dsh >= 0.1.7-rc.2: settings reads and
+ * writes go through `configForms` — the old `settingsScope` service is gone.
  */
 import { createElement as h } from 'react'
 import { DEFAULT_SKIN_SETTINGS, SKIN_NAMESPACE, type SkinSettings } from '../skin-settings.ts'
@@ -29,9 +31,9 @@ interface SlotsService {
   register(options: Record<string, unknown>, component: () => unknown): unknown
 }
 
-/** The settings-scope service (present once the web settings page is composed). */
-interface SettingsScopeService {
-  bind(spec: { namespace: string }): SkinScopeController
+/** The config-forms service (present once the settings domain is composed). */
+interface ConfigFormsService {
+  get(namespace: string): SkinScopeController
 }
 
 /** The client cordis context shape this plugin relies on. */
@@ -41,7 +43,7 @@ interface SkinClientContext {
   locale: LocaleService
   slots: SlotsService
   theme: ThemeOverrideService
-  settingsScope?: SettingsScopeService
+  configForms?: ConfigFormsService
 }
 
 /** Required services: slots/locale for the settings section, theme for token overrides. */
@@ -68,16 +70,21 @@ export function apply(ctx: SkinClientContext): void {
     .then(wallpapers => { controller.applyWallpapers(wallpapers) })
     .catch(() => { /* listing failed — the fallback wallpaper still renders */ })
 
-  // Scoped on purpose: a host without the settings page still gets the skin.
-  ctx.inject(['settingsScope'], (sctx) => {
-    const scope = sctx.settingsScope?.bind({ namespace: SKIN_NAMESPACE })
+  // Scoped on purpose: a host without the settings domain still gets the skin.
+  ctx.inject(['configForms'], (cctx) => {
+    const scope = cctx.configForms?.get(SKIN_NAMESPACE)
     if (scope === undefined) return
-    controller.apply(scope.getSnapshot().value, undefined)
-    sctx.effect(() => scope.subscribe(() => {
-      controller.apply(scope.getSnapshot().value, undefined)
-    }), 'skin-background: settings subscription')
+    const sync = (): void => {
+      const snapshot = scope.getSnapshot()
+      // Before the first accepted section the stored value is unknown; the
+      // defaults applied above stay on screen until then.
+      if (snapshot.status !== 'ready') return
+      controller.apply(snapshot.value ?? DEFAULT_SKIN_SETTINGS, undefined)
+    }
+    sync()
+    cctx.effect(() => scope.subscribe(sync), 'skin-background: settings subscription')
 
-    sctx.slots.inject('settings.section', () => sctx.slots.register({
+    cctx.slots.inject('settings.section', () => cctx.slots.register({
       name: 'settings.section',
       id: 'skin',
       order: 45,
