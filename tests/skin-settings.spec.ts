@@ -59,10 +59,17 @@ describe('resolveSkinSettings', () => {
   })
 
   it('keeps valid values and repairs invalid ones', () => {
-    expect(resolveSkinSettings({ enabled: false, image: 'preset:x', dim: 0.5, blur: 3 }))
-      .toEqual({ enabled: false, image: 'preset:x', dim: 0.5, blur: 3 })
+    expect(resolveSkinSettings({ enabled: false, image: 'preset:x', dim: 0.5, blur: 3, glass: true }))
+      .toEqual({ enabled: false, image: 'preset:x', dim: 0.5, blur: 3, glass: true })
     expect(resolveSkinSettings({ enabled: 'yes' as unknown, image: 'javascript:x', dim: 5, blur: -2 }))
-      .toEqual({ enabled: false, image: '', dim: 0.9, blur: 0 })
+      .toEqual({ enabled: false, image: '', dim: 0.9, blur: 0, glass: false })
+  })
+
+  it('defaults glass to off and accepts only strict booleans', () => {
+    expect(resolveSkinSettings({}).glass).toBe(false)
+    expect(resolveSkinSettings({ glass: true }).glass).toBe(true)
+    expect(resolveSkinSettings({ glass: 'yes' as unknown }).glass).toBe(false)
+    expect(resolveSkinSettings({ glass: 1 as unknown }).glass).toBe(false)
   })
 })
 

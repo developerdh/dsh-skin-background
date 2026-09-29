@@ -21,17 +21,27 @@ export const SKIN_STYLE_TAG = 'dsh-skin-background/skin.css'
 export const SKIN_ACTIVE_CLASS = 'dsh-skin-active'
 
 /**
- * Translucent surface tokens layered over the active theme while the skin is
- * enabled: panels become glass over the wallpaper. Overlays stay nearly
- * opaque so popover text keeps full contrast. Light/dark pairs are both
- * mandatory by the theme service contract.
+ * Token overrides layered over the active theme whenever the skin is enabled:
+ * the main canvas and the sidebar turn translucent so the wallpaper shows
+ * through — this is the skin's core visual, always on with the wallpaper
+ * (same layering approach as dsh-skin). Light/dark pairs are both mandatory
+ * by the theme service contract.
  */
-export const SKIN_TOKEN_OVERRIDES: Readonly<Record<string, { light: string; dark: string }>> = Object.freeze({
+export const SKIN_BASE_TOKEN_OVERRIDES: Readonly<Record<string, { light: string; dark: string }>> = Object.freeze({
   '--dsw-alias-bg-base': { light: 'rgba(247, 248, 252, 0.45)', dark: 'rgba(17, 20, 28, 0.5)' },
+  '--dsw-specific-sidebar-fill': { light: 'rgba(240, 242, 248, 0.38)', dark: 'rgba(15, 18, 26, 0.4)' },
+})
+
+/**
+ * The glass layer, gated by the `glass` setting (default off): panels and
+ * surfaces — including the settings window (`--dsw-alias-bg-layer-2`) — turn
+ * translucent as well. Overlays stay nearly opaque so popover text keeps full
+ * contrast.
+ */
+export const SKIN_GLASS_TOKEN_OVERRIDES: Readonly<Record<string, { light: string; dark: string }>> = Object.freeze({
   '--dsw-alias-bg-layer-1': { light: 'rgba(255, 255, 255, 0.6)', dark: 'rgba(23, 27, 36, 0.62)' },
   '--dsw-alias-bg-layer-2': { light: 'rgba(255, 255, 255, 0.52)', dark: 'rgba(28, 33, 44, 0.55)' },
   '--dsw-alias-bg-overlay': { light: 'rgba(255, 255, 255, 0.92)', dark: 'rgba(24, 28, 38, 0.94)' },
-  '--dsw-specific-sidebar-fill': { light: 'rgba(240, 242, 248, 0.38)', dark: 'rgba(15, 18, 26, 0.4)' },
 })
 
 /**
@@ -72,10 +82,15 @@ export interface SkinControllerDeps {
  * `apply` may run on every settings or wallpaper change; `dispose` fully
  * reverts the DOM and the theme layer.
  */
+/** Source ids for the two token override layers (base always with the skin; glass opt-in). */
+const BASE_TOKEN_SOURCE = 'dsh-skin-background'
+const GLASS_TOKEN_SOURCE = 'dsh-skin-background:glass'
+
 export class SkinController {
   private readonly document: Document
   private readonly theme: ThemeOverrideService
-  private disposeTokens: (() => void) | undefined
+  private disposeBaseTokens: (() => void) | undefined
+  private disposeGlassTokens: (() => void) | undefined
   private lastSettings: SkinSettings | undefined
   private lastWallpapers: readonly WallpaperEntry[] | undefined
 
@@ -86,8 +101,11 @@ export class SkinController {
 
   /**
    * Apply one (possibly partial/garbage) settings document. Disabling or
-   * garbage input degrades cleanly: the wallpaper layer hides and the token
-   * layer is dropped.
+   * garbage input degrades cleanly: the wallpaper layer hides and both token
+   * layers are dropped. The base token layer (main canvas + sidebar) is part
+   * of the skin itself; the glass layer over panels follows its own `glass`
+   * switch (default off) so the wallpaper can run without making official
+   * panels translucent.
    */
   apply(settings: unknown, wallpapers?: readonly WallpaperEntry[]): void {
     const resolved = resolveSkinSettings(settings)
@@ -104,9 +122,14 @@ export class SkinController {
     for (const [name, value] of Object.entries(skinVariables(resolved, this.lastWallpapers))) {
       root.style.setProperty(name, value)
     }
-    if (this.disposeTokens === undefined) {
-      this.disposeTokens = this.theme.overrideTokens('dsh-skin-background', { ...SKIN_TOKEN_OVERRIDES })
-    }
+    // Drop and re-add each token layer on every apply: a glass toggle takes
+    // effect immediately, and overrideTokens stacks layers if re-called.
+    this.disposeBaseTokens?.()
+    this.disposeGlassTokens?.()
+    this.disposeBaseTokens = this.theme.overrideTokens(BASE_TOKEN_SOURCE, { ...SKIN_BASE_TOKEN_OVERRIDES })
+    this.disposeGlassTokens = resolved.glass
+      ? this.theme.overrideTokens(GLASS_TOKEN_SOURCE, { ...SKIN_GLASS_TOKEN_OVERRIDES })
+      : undefined
   }
 
   /** Store a late-arriving wallpaper list and re-apply the last settings. */
@@ -121,14 +144,16 @@ export class SkinController {
     this.apply(this.lastSettings, this.lastWallpapers)
   }
 
-  /** Hide the wallpaper and drop the token layer (plugin stays loaded). */
+  /** Hide the wallpaper and drop both token layers (plugin stays loaded). */
   private deactivate(): void {
     this.document.body.classList.remove(SKIN_ACTIVE_CLASS)
     for (const name of ['--dsh-skin-image', '--dsh-skin-dim-light', '--dsh-skin-dim-dark', '--dsh-skin-blur', '--dsh-skin-bleed']) {
       this.document.documentElement.style.removeProperty(name)
     }
-    this.disposeTokens?.()
-    this.disposeTokens = undefined
+    this.disposeBaseTokens?.()
+    this.disposeBaseTokens = undefined
+    this.disposeGlassTokens?.()
+    this.disposeGlassTokens = undefined
   }
 
   /** Fully revert: deactivate plus remove the style tag. */

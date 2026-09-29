@@ -1,32 +1,41 @@
 /**
  * The "Skin" settings section: wallpaper picker (built-ins plus the user's
  * drop-in directory), custom image URL, enable switch, dim and blur sliders.
- * Edits are staged locally and written through the settings scope on save —
- * the scope fences each write with the revision it read, so a concurrent
+ * Edits are staged locally and written through the config form on save —
+ * the Host fences each write with the revision it read, so a concurrent
  * change elsewhere refuses the save instead of being overwritten.
+ *
+ * dsh >= 0.1.7-rc.2: the form object comes from `ctx.configForms.get(ns)`
+ * (the old `settingsScope` service is gone); its snapshot carries a `status`
+ * field and its writes resolve to a boolean instead of throwing.
  */
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  BLUR_MAX, DIM_MAX, WALLPAPER_ROUTE, isAcceptableImage, resolveImageUrl, resolveSkinSettings,
+  BLUR_MAX, DIM_MAX, UPLOAD_MAX_BYTES, WALLPAPER_ROUTE, isAcceptableImage, resolveImageUrl, resolveSkinSettings,
   type SkinSettings, type WallpaperEntry,
 } from '../skin-settings.ts'
 import type { SkinDictionary } from './locales.ts'
 
-/** Snapshot shape read from the bound settings scope. */
+/** Sync states of one namespace's Host-backed config form. */
+export type SkinFormStatus = 'loading' | 'ready' | 'unavailable'
+
+/** Snapshot shape read from the bound config form. */
 export interface SkinScopeSnapshot {
+  /** `ready` once the Host has served a resolved section. */
+  status: SkinFormStatus
   value?: Partial<SkinSettings>
   /** Raw user layer; key presence (not value) marks a field overridden. */
-  user?: Record<string, unknown>
-  revision: number
+  user?: unknown
+  revision: number | undefined
 }
 
-/** The settings-scope surface this section needs (structural). */
+/** The config-form surface this section needs (structural subset of ConfigForm). */
 export interface SkinScopeController {
   getSnapshot(): SkinScopeSnapshot
   subscribe(listener: () => void): () => void
-  set(field: string, value: unknown): Promise<void>
-  unset(field: string): Promise<void>
+  set(field: string, value: unknown): Promise<boolean>
+  unset(field: string): Promise<boolean>
 }
 
 /** Fetch the wallpaper list from the plugin's Host route. */
@@ -35,6 +44,35 @@ export async function fetchWallpaperList(): Promise<WallpaperEntry[]> {
   if (!response.ok) throw new Error(`wallpaper list request failed: ${response.status}`)
   const body = await response.json() as { wallpapers?: WallpaperEntry[] }
   return body.wallpapers ?? []
+}
+
+/** Body of a successful `POST /skin-background/upload`. */
+export interface UploadResponse {
+  url: string
+  filename: string
+}
+
+/**
+ * Upload one local image to the Host and resolve with its served URL. The
+ * server-side same-origin gate needs nothing extra: browsers attach `Origin`
+ * to same-origin POST fetches automatically.
+ */
+export async function uploadWallpaperImage(file: File): Promise<UploadResponse> {
+  const response = await fetch(`/skin-background/upload?name=${encodeURIComponent(file.name)}`, {
+    method: 'POST',
+    headers: { 'content-type': file.type || 'application/octet-stream' },
+    body: file,
+  })
+  if (!response.ok) {
+    const error = new Error(`upload failed: ${response.status}`) as Error & { status?: number }
+    error.status = response.status
+    throw error
+  }
+  const body = await response.json() as Partial<UploadResponse>
+  if (typeof body.url !== 'string' || typeof body.filename !== 'string' || !isAcceptableImage(body.url)) {
+    throw new Error('upload response unusable')
+  }
+  return { url: body.url, filename: body.filename }
 }
 
 /**
@@ -54,8 +92,8 @@ export function createWallpaperLoader(load: () => Promise<WallpaperEntry[]> = fe
 }
 
 type Draft = Partial<SkinSettings>
-type Field = 'enabled' | 'image' | 'dim' | 'blur'
-const FIELDS: readonly Field[] = ['enabled', 'image', 'dim', 'blur']
+type Field = 'enabled' | 'image' | 'dim' | 'blur' | 'glass'
+const FIELDS: readonly Field[] = ['enabled', 'image', 'dim', 'blur', 'glass']
 
 export interface SkinSectionProps {
   t: (key: keyof SkinDictionary) => string
@@ -80,6 +118,9 @@ export function SkinSection({ t, scope, loadWallpapers = fetchWallpaperList }: S
   const [urlText, setUrlText] = useState('')
   const [urlInvalid, setUrlInvalid] = useState(false)
   const [status, setStatus] = useState<'idle' | 'saved' | 'failed'>('idle')
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<'uploadTooLarge' | 'uploadInvalid' | 'uploadFailed' | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -114,23 +155,57 @@ export function SkinSection({ t, scope, loadWallpapers = fetchWallpaperList }: S
     stage({ image: text })
   }
 
+  const onFileChosen = (file: File): void => {
+    if (file.size > UPLOAD_MAX_BYTES) {
+      setUploadError('uploadTooLarge')
+      return
+    }
+    setUploadError(null)
+    setUploading(true)
+    uploadWallpaperImage(file)
+      .then(uploaded => {
+        const stem = uploaded.filename.replace(/\.[^.]+$/, '')
+        const entry: WallpaperEntry = {
+          id: `user-${stem}`,
+          name: stem.replace(/[_-]+/g, ' ').trim() || uploaded.filename,
+          url: uploaded.url,
+          source: 'user',
+        }
+        setWallpapers(list => {
+          if (list === undefined) return [entry]
+          return list.some(existing => existing.url === entry.url) ? list : [...list, entry]
+        })
+        stage({ image: uploaded.url })
+      })
+      .catch((error: unknown) => {
+        const code = (error as { status?: number }).status
+        setUploadError(code === 413 ? 'uploadTooLarge' : code === 415 ? 'uploadInvalid' : 'uploadFailed')
+      })
+      .finally(() => setUploading(false))
+  }
+
   const save = (): void => {
     const writes = FIELDS
       .filter(field => draft[field] !== undefined && draft[field] !== resolved[field])
       .map(field => scope.set(field, draft[field]))
     if (writes.length === 0) return
     void Promise.all(writes)
-      .then(() => { setStatus('saved'); setDraft({}) })
+      .then(results => { setStatus(results.every(Boolean) ? 'saved' : 'failed'); setDraft({}) })
       .catch(() => setStatus('failed'))
   }
 
   const resetField = (field: Field): void => {
     setStatus('idle')
     setDraft(current => { const next = { ...current }; delete next[field]; return next })
-    void scope.unset(field).catch(() => setStatus('failed'))
+    void scope.unset(field).then(accepted => {
+      if (!accepted) setStatus('failed')
+    }).catch(() => setStatus('failed'))
   }
 
-  const overridden = (field: Field): boolean => snapshot.user !== undefined && field in snapshot.user
+  const overridden = (field: Field): boolean => {
+    const user = snapshot.user
+    return typeof user === 'object' && user !== null && field in (user as Record<string, unknown>)
+  }
 
   const rowStyle: React.CSSProperties = {
     display: 'flex', alignItems: 'center', gap: 12, margin: '14px 0', flexWrap: 'wrap',
@@ -154,6 +229,18 @@ export function SkinSection({ t, scope, loadWallpapers = fetchWallpaperList }: S
           {t('enabled')}
         </label>
         {overridden('enabled') && <ResetChip label={t('reset')} onClick={() => resetField('enabled')} />}
+      </div>
+
+      <div style={rowStyle}>
+        <label style={{ ...labelStyle, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={effective.glass}
+            onChange={event => stage({ glass: event.target.checked })}
+            style={{ marginRight: 8 }}
+          />
+          {t('glass')}
+        </label>
       </div>
 
       <div style={{ ...rowStyle, alignItems: 'flex-start' }}>
@@ -201,6 +288,27 @@ export function SkinSection({ t, scope, loadWallpapers = fetchWallpaperList }: S
         />
         <Button onClick={applyUrl}>{t('customUrlApply')}</Button>
         {urlInvalid && <span style={{ color: 'var(--dsw-alias-state-error-primary)', fontSize: 13 }}>{t('customUrlInvalid')}</span>}
+      </div>
+
+      <div style={rowStyle}>
+        <span style={labelStyle}>{t('upload')}</span>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/avif,image/gif"
+          style={{ display: 'none' }}
+          onChange={event => {
+            const file = event.target.files?.[0]
+            event.target.value = ''
+            if (file !== undefined) onFileChosen(file)
+          }}
+        />
+        <Button disabled={uploading} onClick={() => fileInputRef.current?.click()}>
+          {uploading ? t('uploading') : t('uploadChoose')}
+        </Button>
+        {uploadError !== null && (
+          <span style={{ color: 'var(--dsw-alias-state-error-primary)', fontSize: 13 }}>{t(uploadError)}</span>
+        )}
       </div>
 
       <div style={rowStyle}>

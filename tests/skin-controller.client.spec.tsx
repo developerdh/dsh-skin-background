@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { FALLBACK_WALLPAPER_URL } from '../src/skin-settings.ts'
 import {
-  SKIN_ACTIVE_CLASS, SKIN_STYLE_TAG, SKIN_TOKEN_OVERRIDES, SkinController,
+  SKIN_ACTIVE_CLASS, SKIN_STYLE_TAG, SKIN_BASE_TOKEN_OVERRIDES, SKIN_GLASS_TOKEN_OVERRIDES, SkinController,
   type ThemeOverrideService,
 } from '../src/client/SkinController.ts'
 
@@ -38,8 +38,10 @@ const vars = (): Record<string, string> => {
 const styleTag = (): HTMLStyleElement | null =>
   document.querySelector(`style[data-plugin-css="${SKIN_STYLE_TAG}"]`)
 
+const activeLayers = (theme: ReturnType<typeof createTheme>): RecordedLayer[] => theme.layers.slice(theme.disposed)
+
 describe('SkinController', () => {
-  it('applies the wallpaper layer, variables, and one token override layer', () => {
+  it('applies the base token layer (canvas + sidebar) with the wallpaper by default', () => {
     const { skin, theme } = controller()
     skin.apply({ enabled: true, image: '', dim: 0.4, blur: 6 })
     expect(styleTag()?.dataset.plugin).toBe('dsh-skin-background')
@@ -50,13 +52,31 @@ describe('SkinController', () => {
     expect(vars()['--dsh-skin-dim-dark']).toBe('rgba(6,8,14,0.55)')
     expect(vars()['--dsh-skin-blur']).toBe('6px')
     expect(vars()['--dsh-skin-bleed']).toBe('6px')
-    expect(theme.layers).toHaveLength(1)
-    expect(theme.layers[0].source).toBe('dsh-skin-background')
-    expect(theme.layers[0].tokens).toEqual(SKIN_TOKEN_OVERRIDES)
-    // Re-applying settings does not stack another token layer.
-    skin.apply({ enabled: true, image: '', dim: 0.2, blur: 0 })
-    expect(theme.layers).toHaveLength(1)
+    // The base layer (canvas + sidebar) is the skin's core visual and is
+    // always on; the glass layer is opt-in and absent by default.
+    expect(activeLayers(theme)).toHaveLength(1)
+    expect(activeLayers(theme)[0].source).toBe('dsh-skin-background')
+    expect(activeLayers(theme)[0].tokens).toEqual(SKIN_BASE_TOKEN_OVERRIDES)
+    expect(theme.layers.some(layer => layer.source === 'dsh-skin-background:glass')).toBe(false)
+  })
+
+  it('adds the glass layer only while glass is on and keeps the base layer', () => {
+    const { skin, theme } = controller()
+    skin.apply({ enabled: true, glass: true })
+    expect(activeLayers(theme)).toHaveLength(2)
+    const glass = activeLayers(theme).find(layer => layer.source === 'dsh-skin-background:glass')
+    expect(glass?.tokens).toEqual(SKIN_GLASS_TOKEN_OVERRIDES)
+    // Re-applying with glass on replaces both layers instead of stacking.
+    skin.apply({ enabled: true, image: '', dim: 0.2, blur: 0, glass: true })
+    expect(theme.disposed).toBe(2)
+    expect(activeLayers(theme)).toHaveLength(2)
     expect(vars()['--dsh-skin-dim-light']).toBe('rgba(255,255,255,0.2)')
+    // Toggling glass off drops the glass layer; the base layer stays.
+    skin.apply({ enabled: true, image: '', dim: 0.2, blur: 0, glass: false })
+    expect(theme.disposed).toBe(4)
+    expect(activeLayers(theme)).toHaveLength(1)
+    expect(activeLayers(theme)[0].source).toBe('dsh-skin-background')
+    expect(document.body.classList.contains(SKIN_ACTIVE_CLASS)).toBe(true)
   })
 
   it('resolves preset references once the wallpaper list arrives', () => {
@@ -83,17 +103,17 @@ describe('SkinController', () => {
 
   it('deactivates on disable and fully reverts on dispose', () => {
     const { skin, theme } = controller()
-    skin.apply({ enabled: true })
+    skin.apply({ enabled: true, glass: true })
     skin.apply({ enabled: false })
     expect(document.body.classList.contains(SKIN_ACTIVE_CLASS)).toBe(false)
     expect(vars()['--dsh-skin-image']).toBe('')
-    expect(theme.disposed).toBe(1)
+    expect(theme.disposed).toBe(2) // base + glass layers both dropped
     expect(styleTag()).not.toBeNull() // plugin still loaded; style tag stays
 
-    skin.apply({ enabled: true })
-    expect(theme.layers).toHaveLength(2)
+    skin.apply({ enabled: true, glass: true })
+    expect(activeLayers(theme)).toHaveLength(2)
     skin.dispose()
-    expect(theme.disposed).toBe(2)
+    expect(theme.disposed).toBe(4)
     expect(document.body.classList.contains(SKIN_ACTIVE_CLASS)).toBe(false)
     expect(styleTag()).toBeNull()
   })

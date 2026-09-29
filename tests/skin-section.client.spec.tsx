@@ -23,8 +23,8 @@ class FakeScope implements SkinScopeController {
 
   constructor(documents: Record<string, unknown>) {
     // Snapshots must be reference-stable between revisions — the same
-    // contract the real settings-scope store keeps for useSyncExternalStore.
-    this.snapshot = { value: documents as never, user: {}, revision: 7 }
+    // contract the real config-form store keeps for useSyncExternalStore.
+    this.snapshot = { status: 'ready', value: documents as never, user: {}, revision: 7 }
   }
 
   getSnapshot(): SkinScopeSnapshot {
@@ -36,25 +36,28 @@ class FakeScope implements SkinScopeController {
     return () => { this.listeners.delete(listener) }
   }
 
-  async set(field: string, value: unknown): Promise<void> {
-    if (this.failNextWrite) { this.failNextWrite = false; throw new Error('fenced') }
+  async set(field: string, value: unknown): Promise<boolean> {
+    if (this.failNextWrite) { this.failNextWrite = false; return false }
     this.writes.push({ field, value })
     this.store[field] = value
     this.commit({ ...(this.snapshot.value as object), [field]: value } as never)
+    return true
   }
 
-  async unset(field: string): Promise<void> {
+  async unset(field: string): Promise<boolean> {
     this.unsets.push(field)
     delete this.store[field]
     this.commit()
+    return true
   }
 
   /** Simulate the document moving (revision bump re-reads on the client). */
   commit(value?: Partial<Record<string, unknown>>): void {
     this.snapshot = {
+      status: 'ready',
       value: (value ?? this.snapshot.value) as never,
       user: { ...this.store },
-      revision: this.snapshot.revision + 1,
+      revision: (this.snapshot.revision ?? 0) + 1,
     }
     for (const listener of this.listeners) listener()
   }
@@ -104,6 +107,16 @@ describe('SkinSection', () => {
     })
   })
 
+  it('stages the glass toggle and writes it on save', async () => {
+    const scope = new FakeScope({ enabled: true, image: '', dim: 0.15, blur: 0 })
+    mount(scope)
+    await waitFor(() => { expect(screen.getByTitle('aurora dawn')).toBeDefined() })
+    expect((screen.getByLabelText('glass') as HTMLInputElement).checked).toBe(false)
+    fireEvent.click(screen.getByLabelText('glass'))
+    fireEvent.click(screen.getByText('save'))
+    await waitFor(() => { expect(scope.writes).toEqual([{ field: 'glass', value: true }]) })
+  })
+
   it('accepts a valid custom URL and rejects a dangerous one', async () => {
     const scope = new FakeScope({ enabled: true, image: '', dim: 0.35, blur: 0 })
     mount(scope)
@@ -122,7 +135,7 @@ describe('SkinSection', () => {
     await waitFor(() => { expect(scope.writes).toEqual([{ field: 'image', value: 'https://cdn.example.com/w.jpg' }]) })
   })
 
-  it('discard drops staged edits and a fenced save reports failure', async () => {
+  it('discard drops staged edits and a refused save reports failure', async () => {
     const scope = new FakeScope({ enabled: true, image: '', dim: 0.35, blur: 0 })
     mount(scope)
     await waitFor(() => { expect(screen.getByTitle('aurora dawn')).toBeDefined() })

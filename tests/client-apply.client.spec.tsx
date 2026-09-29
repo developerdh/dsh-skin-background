@@ -5,7 +5,7 @@ import type { SkinScopeController, SkinScopeSnapshot } from '../src/client/SkinS
 
 /**
  * Wiring test for the client entry: dictionaries, the default skin, the
- * scoped settings subscription, and the settings-section registration.
+ * config-form subscription, and the settings-section registration.
  */
 interface RegisteredSection {
   options: Record<string, unknown>
@@ -24,7 +24,7 @@ interface FakeClientContext {
     register(options: Record<string, unknown>, component: () => unknown): unknown
   }
   theme: { overrideTokens(source: string, tokens: Record<string, { light: string; dark: string }>): () => void }
-  settingsScope?: { bind(spec: { namespace: string }): SkinScopeController }
+  configForms?: { get(namespace: string): SkinScopeController }
 }
 
 function mountClient(documents: Record<string, unknown>): {
@@ -40,9 +40,9 @@ function mountClient(documents: Record<string, unknown>): {
   const base: FakeClientContext = {
     effect(callback) { const dispose = callback(); return void dispose },
     inject(services, callback) {
-      if (!services.includes('settingsScope')) return
+      if (!services.includes('configForms')) return
       const scoped: FakeClientContext = Object.create(base)
-      scoped.settingsScope = { bind: () => scope }
+      scoped.configForms = { get: (namespace: string) => namespace === 'skin-background' ? scope : undefined as never }
       scoped.slots = {
         inject: (name, register) => { registrations.push({ name }); register() },
         register: (options, component) => {
@@ -70,7 +70,7 @@ class FakeScope implements SkinScopeController {
   private snapshot: SkinScopeSnapshot
 
   constructor(documents: Record<string, unknown>) {
-    this.snapshot = { value: documents as never, user: {}, revision: 1 }
+    this.snapshot = { status: 'ready', value: documents as never, user: {}, revision: 1 }
   }
 
   getSnapshot(): SkinScopeSnapshot {
@@ -82,12 +82,17 @@ class FakeScope implements SkinScopeController {
     return () => { this.listeners.delete(listener) }
   }
 
-  async set(): Promise<void> {}
-  async unset(): Promise<void> {}
+  async set(): Promise<boolean> { return true }
+  async unset(): Promise<boolean> { return true }
 
   /** Change the durable document and notify subscribers. */
   publish(documents: Record<string, unknown>): void {
-    this.snapshot = { value: documents as never, user: {}, revision: this.snapshot.revision + 1 }
+    this.snapshot = {
+      status: 'ready',
+      value: documents as never,
+      user: {},
+      revision: (this.snapshot.revision ?? 0) + 1,
+    }
     for (const listener of this.listeners) listener()
   }
 }
