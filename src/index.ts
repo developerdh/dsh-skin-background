@@ -17,11 +17,11 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import {
-  BLUR_MAX, DIM_MAX, WALLPAPER_ROUTE,
+  BLUR_MAX, WALLPAPER_ROUTE,
   type SkinSettings,
 } from './skin-settings.ts'
 import { listWallpapers, readWallpaper, type WallpaperListing } from './wallpapers.ts'
-import { handleUpload } from './upload.ts'
+import { handleUpload, handleWallpaperDelete } from './upload.ts'
 
 /** Composition-layer configuration for the `skin-background` loader row. */
 export interface Config extends SkinSettings {}
@@ -36,9 +36,9 @@ export interface Config extends SkinSettings {}
 export const Config = z.object({
   enabled: z.boolean().default(true).volatile(),
   image: z.string().default('').volatile(),
-  dim: z.number().min(0).max(DIM_MAX).step(0.05).default(0.15).volatile(),
+  transparency: z.number().min(0).max(1).step(0.05).default(0.85).volatile(),
   blur: z.number().min(0).max(BLUR_MAX).step(1).default(0).volatile(),
-  glass: z.boolean().default(false).volatile(),
+  windowTransparency: z.number().min(0).max(1).step(0.05).default(0).volatile(),
 })
 
 /** The webServer service surface this plugin touches (structural: declared by the web profile). */
@@ -94,6 +94,10 @@ async function handleSkinRequest(req: IncomingMessage, res: ServerResponse): Pro
   const pathname = new URL(req.url ?? '/', 'http://localhost').pathname
   if (req.method === 'POST' && pathname === '/skin-background/upload') {
     await handleUpload(req, res, USER_DIR)
+    return
+  }
+  if (req.method === 'DELETE' && pathname.startsWith(`${WALLPAPER_ROUTE}/`)) {
+    await handleWallpaperDelete(req, res, USER_DIR)
     return
   }
   if (req.method !== 'GET' && req.method !== 'HEAD') {
