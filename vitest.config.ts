@@ -4,7 +4,7 @@ import { defineConfig, type Plugin } from 'vitest/config'
 const STUB = fileURLToPath(new URL('./tests/stubs/platform-imports.ts', import.meta.url))
 
 /**
- * Test-time stubs for modules the 0.1.7-rc.2 primitives bundle imports but
+ * Test-time stubs for modules the 0.2.0-rc.2 primitives bundle imports but
  * the plugin never touches. The package expects its host to provide them via
  * the loader's static module table (react/clsx stay real); everything else —
  * the shiki highlighter family, the markdown toolchain, and dsh utility

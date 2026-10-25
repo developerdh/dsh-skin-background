@@ -1,5 +1,5 @@
 /**
- * Stubs for platform-provided modules the 0.1.7-rc.2 primitives bundle
+ * Stubs for platform-provided modules the 0.2.0-rc.2 primitives bundle
  * imports (shiki, the markdown toolchain, simple-icons, dsh client peers).
  * Every export is a no-op function: the plugin's tests never render the
  * components that consume them; production resolves the real implementations

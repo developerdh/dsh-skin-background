@@ -188,18 +188,33 @@ describe('wallpaper upload route', () => {
     expect(served.headers['content-type']).toBe('image/png')
   })
 
-  it('refuses cross-origin, originless, oversized, and non-image uploads', async () => {
+  it('refuses cross-site writes, accepts the desktop carrier and originless clients, enforces size and sniffing', async () => {
     const { routes } = await mount()
     const crossOrigin = await request(routes, 'POST', '/skin-background/upload?name=a.png', {
       headers: { origin: 'http://evil.example', host: 'localhost:3000' },
       body: PNG_BYTES,
     })
     expect(crossOrigin.status).toBe(403)
+    // Sandboxed frames send the literal `null` origin.
+    const nullOrigin = await request(routes, 'POST', '/skin-background/upload?name=a.png', {
+      headers: { origin: 'null', host: 'localhost:3000' },
+      body: PNG_BYTES,
+    })
+    expect(nullOrigin.status).toBe(403)
+    // The desktop carrier proxies the privileged dsh-app:// page to the
+    // loopback server: custom-scheme origin over an unrelated Host.
+    const desktopCarrier = await request(routes, 'POST', '/skin-background/upload?name=a.png', {
+      headers: { origin: 'dsh-app://app', host: '127.0.0.1:3000' },
+      body: PNG_BYTES,
+    })
+    expect(desktopCarrier.status).toBe(200)
+    // No Origin at all is not producible by a web page (the desktop proxy or
+    // a non-browser client) — there is nothing to compare, so it passes.
     const originless = await request(routes, 'POST', '/skin-background/upload?name=a.png', {
       headers: { host: 'localhost:3000' },
       body: PNG_BYTES,
     })
-    expect(originless.status).toBe(403)
+    expect(originless.status).toBe(200)
     const oversized = await request(routes, 'POST', '/skin-background/upload?name=a.png', {
       headers: { ...SAME_ORIGIN, 'content-length': String(UPLOAD_MAX_BYTES + 1) },
       body: PNG_BYTES,
