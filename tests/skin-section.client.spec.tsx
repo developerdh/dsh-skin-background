@@ -203,4 +203,49 @@ describe('SkinSection', () => {
       globalThis.fetch = originalFetch
     }
   })
+
+  it('compresses an oversized pick before upload and stages the served wallpaper', async () => {
+    const uploads: { url: string; bodyName: string | undefined }[] = []
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).startsWith('/skin-background/upload')) {
+        uploads.push({ url: String(input), bodyName: (init?.body as File | undefined)?.name })
+        return new Response(
+          '{"url":"/skin-background/wallpapers/photo.webp","filename":"photo.webp"}',
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      return originalFetch(input, init)
+    }) as typeof fetch
+    try {
+      const scope = new FakeScope({ enabled: true, image: '', transparency: 0.35, blur: 0 })
+      const prepared = new File([new Uint8Array(8)], 'photo.webp', { type: 'image/webp' })
+      const prepareFile = vi.fn(() => Promise.resolve(prepared))
+      const { container } = render(
+        <SkinSection t={t} scope={scope} loadWallpapers={() => Promise.resolve(wallpapers)} prepareFile={prepareFile} />,
+      )
+      await waitFor(() => { expect(screen.getByTitle('aurora dawn')).toBeDefined() })
+      const oversized = new File([new Uint8Array(6 * 1024 * 1024)], 'photo.jpg', { type: 'image/jpeg' })
+      fireEvent.change(container.querySelector('input[type="file"]') as HTMLInputElement, { target: { files: [oversized] } })
+      await waitFor(() => { expect(uploads).toEqual([{ url: '/skin-background/upload?name=photo.webp', bodyName: 'photo.webp' }]) })
+      expect(prepareFile).toHaveBeenCalledWith(oversized)
+      // The compressed upload lands in the grid as a selected user tile.
+      await waitFor(() => { expect(screen.getByTitle('photo wallpaperUser').getAttribute('data-selected')).toBe('true') })
+      expect(screen.getByText('dirty')).toBeDefined()
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('reports uploadTooLarge when compression cannot reach the cap', async () => {
+    const scope = new FakeScope({ enabled: true, image: '', transparency: 0.35, blur: 0 })
+    const { container } = render(
+      <SkinSection t={t} scope={scope} loadWallpapers={() => Promise.resolve(wallpapers)} prepareFile={() => Promise.resolve(null)} />,
+    )
+    await waitFor(() => { expect(screen.getByTitle('aurora dawn')).toBeDefined() })
+    const oversized = new File([new Uint8Array(6 * 1024 * 1024)], 'photo.jpg', { type: 'image/jpeg' })
+    fireEvent.change(container.querySelector('input[type="file"]') as HTMLInputElement, { target: { files: [oversized] } })
+    await waitFor(() => { expect(screen.getByText('uploadTooLarge')).toBeDefined() })
+    expect(scope.writes).toEqual([])
+  })
 })

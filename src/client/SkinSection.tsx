@@ -1,11 +1,12 @@
 /**
  * The "Skin" settings section: wallpaper picker (built-ins, the user's
- * drop-in directory, and local uploads through the "+" tile), custom image
- * URL, enable switch, transparency sliders (main panel + shared
- * settings/Plugins windows) and the blur slider. Edits are staged locally and
- * written through the config form on save — the Host fences each write with
- * the revision it read, so a concurrent change elsewhere refuses the save
- * instead of being overwritten.
+ * drop-in directory, and local uploads through the "+" tile — files over
+ * 5 MB compress on the client before the wire, animated sources degrade to
+ * a still frame), custom image URL, enable switch, transparency sliders
+ * (main panel + shared settings/Plugins windows) and the blur slider. Edits
+ * are staged locally and written through the config form on save — the Host
+ * fences each write with the revision it read, so a concurrent change
+ * elsewhere refuses the save instead of being overwritten.
  *
  * dsh >= 0.1.7-rc.2: the form object comes from `ctx.configForms.get(ns)`
  * (the old `settingsScope` service is gone); its snapshot carries a `status`
@@ -17,9 +18,10 @@
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import {
-  BLUR_MAX, UPLOAD_MAX_BYTES, WALLPAPER_ROUTE, isAcceptableImage, resolveImageUrl, resolveSkinSettings,
+  BLUR_MAX, WALLPAPER_ROUTE, isAcceptableImage, resolveImageUrl, resolveSkinSettings,
   type SkinSettings, type WallpaperEntry,
 } from '../skin-settings.ts'
+import { prepareUploadFile } from './compress.ts'
 import { SECTION_CSS, SECTION_STYLE_ID } from './skin-section.css.ts'
 import type { SkinDictionary } from './locales.ts'
 
@@ -119,6 +121,8 @@ export interface SkinSectionProps {
   t: (key: keyof SkinDictionary) => string
   scope: SkinScopeController
   loadWallpapers?: () => Promise<WallpaperEntry[]>
+  /** Upload preparation hook (compresses oversized files); injectable for tests. */
+  prepareFile?: (file: File) => Promise<File | null>
 }
 
 /** One staged field differs from the composed value. */
@@ -135,7 +139,7 @@ export function ensureSectionStyles(): void {
   document.head.appendChild(style)
 }
 
-export function SkinSection({ t, scope, loadWallpapers = fetchWallpaperList }: SkinSectionProps): JSX.Element {
+export function SkinSection({ t, scope, loadWallpapers = fetchWallpaperList, prepareFile = prepareUploadFile }: SkinSectionProps): JSX.Element {
   ensureSectionStyles()
 
   const subscribe = useCallback((listener: () => void) => scope.subscribe(listener), [scope])
@@ -190,14 +194,20 @@ export function SkinSection({ t, scope, loadWallpapers = fetchWallpaperList }: S
     stage({ image: text })
   }
 
-  const onFileChosen = (file: File): void => {
-    if (file.size > UPLOAD_MAX_BYTES) {
-      setUploadError('uploadTooLarge')
-      return
-    }
+  const onFileChosen = (picked: File): void => {
     setUploadError(null)
     setUploading(true)
-    uploadWallpaperImage(file)
+    Promise.resolve(prepareFile(picked))
+      .then(prepared => {
+        // `null`: undecodable, or still over the cap after the full ladder —
+        // surfaced through the same 413 mapping as the Host's own refusal.
+        if (prepared === null) {
+          const error = new Error('upload exceeds the cap even after compression') as Error & { status?: number }
+          error.status = 413
+          throw error
+        }
+        return uploadWallpaperImage(prepared)
+      })
       .then(uploaded => {
         const stem = uploaded.filename.replace(/\.[^.]+$/, '')
         const entry: WallpaperEntry = {

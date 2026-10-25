@@ -3,11 +3,16 @@
  * The request body is the raw image bytes. Defense in depth, because the
  * plugin route layer is raw node:http with no session middleware:
  *
- * 1. Same-origin gate — browsers always attach `Origin` to POST requests, so
- *    requiring it to match the request `Host` blocks cross-site CSRF writes
- *    (a hostile page POSTing to `http://127.0.0.1:<port>/…` sends its own
- *    origin and is refused). Non-browser clients must send matching headers.
+ * 1. Same-origin gate — browsers attach `Origin` to every POST/DELETE, so a
+ *    hostile page POSTing to `http://127.0.0.1:<port>/…` carries its own
+ *    http(s) origin and is refused, as is the literal `null` origin of
+ *    sandboxed frames. Two request shapes cannot be produced by a web page
+ *    and pass: no `Origin` at all (the desktop carrier's proxied requests,
+ *    non-browser clients) and a custom-scheme origin (`dsh-app://app` — the
+ *    desktop's privileged page, unreachable from the web).
  * 2. Size cap — refused up front via `content-length` and again while reading.
+ *    The browser half compresses oversized files first (see src/client/compress.ts);
+ *    this cap stays as the hard backstop for non-browser or failing clients.
  * 3. Content sniffing — the stored extension comes from magic-number
  *    inspection, never from the client; SVG is deliberately excluded because
  *    an image/svg file can carry scripts.
@@ -62,16 +67,24 @@ export function sanitizeUploadStem(rawName: string): string | null {
 
 /**
  * Whether the request passes the same-origin gate (see module docs).
- * Compares the `Origin` authority against the `Host` header, case-insensitively.
+ *
+ * Browser-borne cross-site writes always carry the attacker's http(s) origin
+ * (and sandboxed frames carry the literal `null`), so they are refused unless
+ * the origin host matches the request `Host`. Everything else — no `Origin`
+ * header, or a custom app scheme like `dsh-app://app` — cannot originate from
+ * a web page and is allowed, which is what makes the desktop carrier work.
  */
 export function isSameOrigin(req: IncomingMessage): boolean {
   const origin = req.headers.origin
-  if (origin === undefined || req.headers.host === undefined) return false
+  if (origin === undefined) return true
+  let parsed: URL
   try {
-    return new URL(origin).host.toLowerCase() === req.headers.host.toLowerCase()
+    parsed = new URL(origin)
   } catch {
     return false
   }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return true
+  return req.headers.host !== undefined && parsed.host.toLowerCase() === req.headers.host.toLowerCase()
 }
 
 /** Read the request body as one Buffer; null when over the cap or the stream errors. */
